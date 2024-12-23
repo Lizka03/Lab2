@@ -1,40 +1,80 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Lr2_Kobzeva.Models;
+﻿using Lr2_Kobzeva.Models;
+using Lr2_Kobzeva;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Text;
 
-namespace Lr2_Kobzeva.Controllers
+
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class AuthController : ControllerBase
+    private readonly ApplicationDbContext _context;
+
+    public AuthController(ApplicationDbContext context)
     {
-        private readonly List<User> _users;
+        _context = context;
+    }
+    public struct LoginData
+    {
+        public string Login { get; set; }
+        public string Password { get; set; }
+    }
+    // Регистрация нового пользователя
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] User user)
+    {
+        // Проверяем, существует ли пользователь с таким логином
+        if (await _context.Users.AnyAsync(u => u.Login == user.Login))
+            return BadRequest("Пользователь с таким логином уже существует.");
 
-        public AuthController()
-        {
-            // Инициализация пользователей (вместо базы данных)
-            _users = new List<User>
-            {
-                new User { Username = "admin", PasswordHash = "admin123", is_admin = true },
-                new User { Username = "user", PasswordHash = "user123", is_admin = false }
-            };
-        }
+        // Проверка: если флаг IsAdmin установлен
+        //if (user.IsAdmin)
+        //{
+            // Проверяем, авторизован ли текущий пользователь и является ли он администратором
+          //  if (!User.Identity.IsAuthenticated || !_context.Users.Any(u => u.Login == User.Identity.Name && u.IsAdmin))
+            //    return Forbid("Вы не можете зарегистрировать администратора.");
+        //}
 
-        // POST: /api/Auth/login
-        [HttpPost("login")]
-        public IActionResult Login([FromBody] User loginData)
+        // Добавляем пользователя в базу
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+
+        return Ok("Пользователь успешно зарегистрирован.");
+    }
+
+
+    // Авторизация пользователя
+    [HttpPost("login")]
+    public IActionResult GetToken([FromBody] LoginData ld)
+    {
+        if (string.IsNullOrEmpty(ld.Login) || string.IsNullOrEmpty(ld.Password))
+            return BadRequest(new { message = "Логин и пароль обязательны" });
+
+        // Хэшируем введённый пароль для проверки
+        using (var md5 = System.Security.Cryptography.MD5.Create())
         {
-            // Ищем пользователя с указанными именем и паролем
-            var user = _users.FirstOrDefault(u =>
-                u.Username == loginData.Username && u.PasswordHash == loginData.PasswordHash);
+            var hashedPassword = BitConverter.ToString(md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(ld.Password)))
+                .Replace("-", "").ToLower();
+
+            // Ищем пользователя в базе данных
+            var user = _context.Users.FirstOrDefault(u =>
+                u.Login == ld.Login && u.Password == hashedPassword);
 
             if (user == null)
             {
-                return Unauthorized("Неверное имя пользователя или пароль.");
+                // Если пользователь не найден, возвращаем 401 Unauthorized
+                return Unauthorized(new { message = "Неверный логин или пароль" });
             }
 
-            // Генерируем токен
-            var token = AuthOptions.GenerateToken(user.Username, user.is_admin);
-            return Ok(token);
+            // Генерируем токен для пользователя
+            var token = AuthOptions.GenerateToken(user.Username, user.IsAdmin);
+
+            // Возвращаем токен
+            return Ok(new { Token = token, Message = "Авторизация успешна" });
         }
     }
 }
+
+
+

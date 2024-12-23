@@ -35,9 +35,9 @@ namespace Lr2_Kobzeva
                 claims: identity.Claims,
                 signingCredentials: new SigningCredentials(SigningKey, SecurityAlgorithms.HmacSha256));
 
-            var encodedJwt = new JwtSecurityTokenHandler().WriteToken(jwt);
+            //var encodedJwt = new JwtSecurityTokenHandler().WriteToken(jwt);
 
-            return new { token = encodedJwt };
+            return new JwtSecurityTokenHandler().WriteToken(jwt);
         }
     }
 }

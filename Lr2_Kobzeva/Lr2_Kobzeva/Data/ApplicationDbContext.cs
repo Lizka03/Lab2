@@ -21,4 +21,10 @@ public class ApplicationDbContext : DbContext
             .WithMany(a => a.Books)
             .UsingEntity(j => j.ToTable("BookAuthors")); // Таблица связывания
     }
+    public async Task ResetIdentity(string tableName, int seedValue = 0)
+    {
+        var sql = $"DBCC CHECKIDENT ('{tableName}', RESEED, {seedValue})";
+        await Database.ExecuteSqlRawAsync(sql);
+    }
+
 }

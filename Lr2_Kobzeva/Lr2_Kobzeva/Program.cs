@@ -10,6 +10,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+//builder.Services.AddScoped<Manager>();
 // Настраиваем JWT-аутентификацию
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -20,14 +24,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true, // Проверка аудитории токена
             ValidateLifetime = true, // Проверка срока действия токена
             ValidateIssuerSigningKey = true, // Проверка подписи токена
-            ValidIssuer = "PT", // Уникальный идентификатор сервиса
+            ValidIssuer = "EM", // Уникальный идентификатор сервиса
             ValidAudience = "APIclients", // Аудитория токена
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes("superSecretKeyMustBeLoooooong32bitsMore")) // Секретный ключ
         };
     });
 
 // Добавляем контроллеры
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = null; // Использует точные названия из модели
+    });
+
 
 var app = builder.Build();
 

@@ -1,0 +1,5 @@
+﻿INSERT INTO [dbo].[BookAuthors] ([AuthorsId], [BooksId]) VALUES (1, 1)
+INSERT INTO [dbo].[BookAuthors] ([AuthorsId], [BooksId]) VALUES (2, 2)
+INSERT INTO [dbo].[BookAuthors] ([AuthorsId], [BooksId]) VALUES (1, 3)
+INSERT INTO [dbo].[BookAuthors] ([AuthorsId], [BooksId]) VALUES (1, 4)
+INSERT INTO [dbo].[BookAuthors] ([AuthorsId], [BooksId]) VALUES (1, 5)
