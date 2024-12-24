@@ -62,6 +62,9 @@ namespace Lr2_Kobzeva.Controllers
                 // Если авторы не указаны, оставляем список пустым
                 book.Authors = new List<Author>();
             }
+            book.IsAvailable = true; // Книга доступна при добавлении
+            book.DateRented = null;  // Дата аренды отсутствует
+            book.DueDate = null;     // Дата возврата отсутствует
 
             _context.Books.Add(book);
             await _context.SaveChangesAsync();
@@ -138,7 +141,7 @@ namespace Lr2_Kobzeva.Controllers
             // Проверить, доступна ли книга
             if (!book.IsAvailable)
             {
-                return BadRequest(new { message = "Книга уже арендована." });
+                return BadRequest(new { message = $"Книга уже арендована до {book.DueDate:dd.MM.yyyy}." });
             }
 
             // Связать книгу с текущим пользователем
@@ -149,6 +152,7 @@ namespace Lr2_Kobzeva.Controllers
             {
                 currentUser.RentedBookIds.Add(bookId);
             }
+
             // Сохранить изменения
             _context.Books.Update(book);
             _context.Users.Update(currentUser);
@@ -156,11 +160,14 @@ namespace Lr2_Kobzeva.Controllers
 
             return Ok(new
             {
-                message = $"Книга '{book.Title}' успешно арендована.",
+                message = $"Книга '{book.Title}' успешно арендована до {book.DueDate:dd.MM.yyyy}.",
                 bookId = book.Id,
-                rentedByUserId = currentUser.Id
+                rentedByUserId = currentUser.Id,
+                dateRented = book.DateRented,
+                dueDate = book.DueDate
             });
         }
+
 
         [HttpDelete("reset-books")]
         [Authorize(Roles = "admin")] // Только администратор может сбрасывать книги
@@ -224,7 +231,7 @@ namespace Lr2_Kobzeva.Controllers
 
         [HttpPost("{bookId}/rent-to-user/{userId}")]
         [Authorize(Roles = "admin")] // Только администратор может выполнять эту операцию
-        public async Task<IActionResult> AssignBookToUser(int bookId, int userId)
+        public async Task<IActionResult> AssignBookToUserWithDate(int bookId, int userId, [FromBody] DateTime? dueDate)
         {
             // Найти книгу по ID
             var book = await _context.Books.FindAsync(bookId);
@@ -236,7 +243,7 @@ namespace Lr2_Kobzeva.Controllers
             // Проверить, доступна ли книга
             if (!book.IsAvailable)
             {
-                return BadRequest(new { message = "Книга уже арендована." });
+                return BadRequest(new { message = $"Книга уже арендована до {book.DueDate:dd.MM.yyyy}." });
             }
 
             // Найти пользователя по ID
@@ -246,8 +253,11 @@ namespace Lr2_Kobzeva.Controllers
                 return NotFound(new { message = "Пользователь не найден." });
             }
 
-            // Связать книгу с указанным пользователем
-            book.RentBook(user.Id);
+            // Установить дату возврата (либо вручную, либо по умолчанию +30 дней)
+            book.DateRented = DateTime.UtcNow;
+            book.DueDate = dueDate ?? DateTime.UtcNow.AddMonths(1);
+            book.IsAvailable = false;
+            book.RentedByUserId = user.Id;
 
             // Добавить книгу в список арендованных книг у пользователя
             if (!user.RentedBookIds.Contains(bookId))
@@ -262,17 +272,108 @@ namespace Lr2_Kobzeva.Controllers
 
             return Ok(new
             {
-                message = $"Книга '{book.Title}' успешно арендована пользователем {user.Username}.",
+                message = $"Книга '{book.Title}' успешно арендована пользователем {user.Username} до {book.DueDate:dd.MM.yyyy}.",
                 book = new
                 {
                     book.Id,
                     book.Title,
-                    rentedByUserId = user.Id
+                    rentedByUserId = user.Id,
+                    dateRented = book.DateRented,
+                    dueDate = book.DueDate
                 }
             });
         }
 
 
+
+        [HttpGet("{id}/status")]
+        [Authorize(Roles = "admin")]
+        public IActionResult GetBookStatus(int id)
+        {
+            var book = _context.Books.FirstOrDefault(b => b.Id == id);
+
+            if (book == null)
+                return NotFound("Книга не найдена.");
+
+            return Ok(new
+            {
+                book.Id,
+                book.Title,
+                Status = book.GetStatus()
+            });
+        }
+        [HttpGet("overdue-books")]
+        [Authorize(Roles = "admin")] // Только для администратора
+        public async Task<IActionResult> GetOverdueBooks()
+        {
+            // Получаем текущую дату
+            var currentDate = DateTime.UtcNow;
+
+            // Ищем книги с истекшей датой возврата
+            var overdueBooks = await _context.Books
+                .Include(b => b.Authors) // Подгружаем данные об авторах
+                .Where(b => !b.IsAvailable && b.DueDate < currentDate)
+                .ToListAsync();
+
+            // Если таких книг нет, возвращаем соответствующее сообщение
+            if (!overdueBooks.Any())
+            {
+                return Ok(new { message = "Нет просроченных книг." });
+            }
+
+            // Возвращаем список просроченных книг с их данными
+            return Ok(overdueBooks.Select(b => new
+            {
+                b.Id,
+                b.Title,
+                b.RentedByUserId,
+                b.DateRented,
+                b.DueDate,
+                Authors = b.Authors.Select(a => a.Name).ToList()
+            }));
+        }
+        [HttpPost("{bookId}/return")]
+        [Authorize(Roles = "admin")]
+        public async Task<IActionResult> ReturnBook(int bookId)
+        {
+            var book = await _context.Books.FindAsync(bookId);
+            if (book == null)
+                return NotFound(new { message = "Книга не найдена." });
+
+            if (book.IsAvailable)
+                return BadRequest(new { message = "Книга уже доступна." });
+
+            book.ReturnBook();
+            _context.Books.Update(book);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = $"Книга '{book.Title}' успешно возвращена." });
+        }
+
+        [HttpGet("most-rented-author")]
+        [Authorize] // Запрос доступен только авторизованным пользователям
+        public async Task<IActionResult> GetMostRentedAuthor()
+        {
+            var mostRentedAuthor = await _context.Authors
+                .Select(a => new
+                {
+                    Author = a.Name,
+                    RentedBookCount = a.Books.Count(b => !b.IsAvailable) // Считаем только арендованные книги
+                })
+                .OrderByDescending(a => a.RentedBookCount) // Сортируем по убыванию количества арендованных книг
+                .FirstOrDefaultAsync(); // Берём автора с максимальным количеством арендованных книг
+
+            if (mostRentedAuthor == null || mostRentedAuthor.RentedBookCount == 0)
+            {
+                return NotFound(new { message = "Нет авторов с арендованными книгами." });
+            }
+
+            return Ok(new
+            {
+                mostRentedAuthor.Author,
+                mostRentedAuthor.RentedBookCount
+            });
+        }
 
     }
 }
